@@ -43,6 +43,9 @@ namespace rdma {
 
         constexpr void setContext(void *context);
 
+        template <typename T>
+        constexpr T *getContext() const;
+
         void bindAddr(sockaddr *addr);
         void resolveAddr(sockaddr *src, sockaddr *dst, int timeout_ms);
         void resolveRoute(int timeout_ms);
@@ -229,6 +232,12 @@ inline void rdma::event::Channel::operator delete(void *ptr) noexcept {
 
 constexpr void rdma::ID::setContext(void *context) {
     this->context = context;
+}
+
+template <typename T>
+constexpr T *rdma::ID::getContext() const
+{
+    return static_cast<T *>(context);
 }
 
 inline void rdma::ID::bindAddr(sockaddr *addr)
