@@ -124,6 +124,9 @@ namespace rdma {
 
             [[nodiscard]]
             std::unique_ptr<Event> getEvent();
+
+	    [[nodiscard]]
+	    int getFD() const;
         };
 
         static_assert(sizeof(Channel) == sizeof(rdma_event_channel), "");
@@ -213,6 +216,11 @@ inline std::unique_ptr<rdma::event::Event> rdma::event::Channel::getEvent()
     int ret = rdma_get_cm_event(this, &event);
     internal::checkStatus("rdma_get_cm_event", ret);
     return std::unique_ptr<Event>(reinterpret_cast<Event *>(event));
+}
+
+inline int rdma::event::Channel::getFD() const
+{
+    return fd;
 }
 
 inline void rdma::event::Channel::operator delete(void *ptr) noexcept {
