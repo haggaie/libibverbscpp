@@ -46,6 +46,9 @@ namespace rdma {
 	ibv::queuepair::QueuePair* getQP();
 	ibv::protectiondomain::ProtectionDomain* getPD();
 
+        template <typename T>
+        constexpr T *getContext() const;
+
         void bindAddr(sockaddr *addr);
         void resolveAddr(sockaddr *src, sockaddr *dst, int timeout_ms);
         void resolveRoute(int timeout_ms);
@@ -246,6 +249,12 @@ ibv::queuepair::QueuePair* rdma::ID::getQP()
 ibv::protectiondomain::ProtectionDomain* rdma::ID::getPD()
 {
     return reinterpret_cast<ibv::protectiondomain::ProtectionDomain *>(pd);
+}
+
+template <typename T>
+constexpr T *rdma::ID::getContext() const
+{
+    return static_cast<T *>(context);
 }
 
 inline void rdma::ID::bindAddr(sockaddr *addr)
