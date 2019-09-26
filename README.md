@@ -1,11 +1,11 @@
 # libibverbscpp - Modern C++ bindings for libibverbs
 
-> libibverbs is a library that allows userspace processes to use InfiniBand/RDMA "verbs" directly.
+> `libibverbs` is a library that allows userspace processes to use InfiniBand/RDMA "verbs" directly.
 
-However, libibverbs only has C bindings, with little type-safety and a bug-prone manual deallocation mechanisms.
+However, libibverbs only has C bindings, with little type-safety and a bug-prone manual deallocation mechanism.
  
-As libibverbs already uses some object-oriented approaches, so a C++ wrapper providing strong types and RAII mechanisms
-for resource management.  
+As `libibverbs` already uses some object-oriented approaches, the C++ wrapper can provide stronger types and RAII mechanisms
+for resource management.
 
 ### Building
 You'll probably need a reasonably modern compiler for this with basic C++14 support. 
@@ -36,6 +36,7 @@ ibv::workrequest::SendWr *bad;
 qp->postSend(wr, bad);
 // no explicit teardown needed
 ```
+A working example is in the `example` directory.
 
 ### Resource management
 All allocations return a `std::unique_ptr<T>`, which automatically handles exception-safe teardown. In error cases, an
