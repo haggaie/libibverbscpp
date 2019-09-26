@@ -16,9 +16,9 @@ namespace rdma {
             std::unique_ptr<rdma::event::Channel> event_channel;
         public:
             EventChannel(boost::asio::io_service& io_service) :
-                event_channel(rdma::createEventChannel()),
                 boost::asio::io_service::service(io_service),
-                socket(io_service)
+                socket(io_service),
+                event_channel(rdma::createEventChannel())
             {
                 socket.assign(boost::asio::ip::udp::v4(),
                         event_channel->getFD());
