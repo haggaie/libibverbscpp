@@ -52,7 +52,7 @@ namespace rdma {
         void bindAddr(sockaddr *addr);
         void resolveAddr(sockaddr *src, sockaddr *dst, int timeout_ms);
         void resolveRoute(int timeout_ms);
-        void createQP(ibv::protectiondomain::ProtectionDomain& pd, ibv::queuepair::InitAttributes& init_attr);
+        void createQP(boost::optional<ibv::protectiondomain::ProtectionDomain&> pd, ibv::queuepair::InitAttributes& init_attr);
         void destroyQP();
         void connect(rdma_conn_param* param);
         void listen(int backlog);
@@ -275,9 +275,9 @@ inline void rdma::ID::resolveRoute(int timeout_ms)
     internal::checkStatus("rdma_resolve_route", ret);
 }
 
-inline void rdma::ID::createQP(ibv::protectiondomain::ProtectionDomain& pd, ibv::queuepair::InitAttributes& init_attr)
+inline void rdma::ID::createQP(boost::optional<ibv::protectiondomain::ProtectionDomain&> pd, ibv::queuepair::InitAttributes& init_attr)
 {
-    int ret = rdma_create_qp(this, &pd, &init_attr);
+    int ret = rdma_create_qp(this, pd.get_ptr(), &init_attr);
     internal::checkStatus("rdma_create_qp", ret);
 }
 
