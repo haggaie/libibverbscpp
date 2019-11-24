@@ -241,12 +241,12 @@ constexpr void rdma::ID::setContext(void *context) {
     this->context = context;
 }
 
-ibv::queuepair::QueuePair* rdma::ID::getQP()
+inline ibv::queuepair::QueuePair* rdma::ID::getQP()
 {
     return reinterpret_cast<ibv::queuepair::QueuePair *>(qp);
 }
 
-ibv::protectiondomain::ProtectionDomain* rdma::ID::getPD()
+inline ibv::protectiondomain::ProtectionDomain* rdma::ID::getPD()
 {
     return reinterpret_cast<ibv::protectiondomain::ProtectionDomain *>(pd);
 }
