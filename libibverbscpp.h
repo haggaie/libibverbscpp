@@ -1914,6 +1914,19 @@ class Context : public ibv_context, public internal::PointerOnly {
 /// status, then libibverbs data structures are not fork()-safe and the effect of an application calling fork()
 /// is undefined.
 inline void forkInit();
+
+// Helper class for custom allocators
+class CustomAllocator : public parentdomain::Attributes
+{
+public:
+    explicit CustomAllocator(protectiondomain::ProtectionDomain& pd);
+    virtual ~CustomAllocator() {}
+
+protected:
+    virtual void *alloc(parentdomain::ParentDomain& pd, size_t size, size_t alignment, uint64_t resource_type) = 0;
+    virtual void free(parentdomain::ParentDomain& pd, void *ptr, uint64_t resource_type) = 0;
+};
+
 } // namespace ibv
 
 /**********************************************************************************************************************/
@@ -3646,6 +3659,22 @@ ibv::context::Context::getAhAttributesFromWorkCompletion(uint8_t port_num, ibv::
     ah::Attributes attributes;
     initAhAttributesFromWorkCompletion(port_num, wc, grh, attributes);
     return attributes;
+}
+
+inline ibv::CustomAllocator::CustomAllocator(protectiondomain::ProtectionDomain& pd)
+{
+    setPD(pd);
+    setContext(this);
+
+    setAlloc([](ibv_pd *pd_ptr, void *pd_context, size_t size, size_t alignment, uint64_t resource_type) {
+	CustomAllocator *allocator = static_cast<CustomAllocator *>(pd_context);
+	return allocator->alloc(static_cast<parentdomain::ParentDomain&>(*pd_ptr), size, alignment, resource_type);
+    });
+
+    setFree([](ibv_pd *pd_ptr, void *pd_context, void *ptr, uint64_t resource_type) {
+	CustomAllocator *allocator = static_cast<CustomAllocator *>(pd_context);
+	return allocator->free(static_cast<parentdomain::ParentDomain&>(*pd_ptr), ptr, resource_type);
+    });
 }
 
 #endif
