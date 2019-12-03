@@ -1777,10 +1777,27 @@ class ProtectionDomain : public ibv_pd, public internal::PointerOnly {
     [[nodiscard]] std::unique_ptr<ah::AddressHandle>
     createAddressHandleFromWorkCompletion(workcompletion::WorkCompletion &wc, GlobalRoutingHeader *grh,
                                           uint8_t port_num);
+
 };
 
 static_assert(sizeof(ProtectionDomain) == sizeof(ibv_pd), "");
 } // namespace protectiondomain
+
+namespace threaddomain {
+    class ThreadDomain : public ibv_td, public internal::PointerOnly {
+    public:
+    static void *operator new(std::size_t) noexcept = delete;
+
+    static void operator delete(void *ptr) noexcept;
+    };
+
+    static_assert(sizeof(ThreadDomain) == sizeof(ibv_td), "");
+
+    struct Attributes : public ibv_td_init_attr {
+    };
+
+    static_assert(sizeof(Attributes) == sizeof(ibv_td_init_attr), "");
+} // namespace threaddomain
 
 namespace context {
 class Context : public ibv_context, public internal::PointerOnly {
@@ -1817,6 +1834,9 @@ class Context : public ibv_context, public internal::PointerOnly {
 
     /// Allocate a ProtectionDomain for the device
     [[nodiscard]] std::unique_ptr<protectiondomain::ProtectionDomain> allocProtectionDomain();
+
+    /// Allocate a ThreadDomain for the device
+    [[nodiscard]] std::unique_ptr<threaddomain::ThreadDomain> allocThreadDomain(threaddomain::Attributes& attr);
 
     /// open an XRC protection domain
     [[nodiscard]] std::unique_ptr<xrcd::ExtendedConnectionDomain>
@@ -3437,6 +3457,11 @@ ibv::protectiondomain::ProtectionDomain::createAddressHandleFromWorkCompletion(i
     return std::unique_ptr<AH>(reinterpret_cast<AH *>(ah));
 }
 
+inline void ibv::threaddomain::ThreadDomain::operator delete(void *ptr) noexcept {
+    const auto status = ibv_dealloc_td(reinterpret_cast<ibv_td *>(ptr));
+    internal::checkStatusNoThrow("ibv_dealloc_td", status);
+}
+
 inline void ibv::context::Context::operator delete(void *ptr) noexcept {
     const auto status = ibv_close_device(reinterpret_cast<ibv_context *>(ptr));
     internal::checkStatusNoThrow("ibv_close_device", status);
@@ -3486,6 +3511,13 @@ inline std::unique_ptr<ibv::protectiondomain::ProtectionDomain> ibv::context::Co
     const auto pd = ibv_alloc_pd(this);
     internal::checkPtr("ibv_alloc_pd", pd);
     return std::unique_ptr<PD>(reinterpret_cast<PD *>(pd));
+}
+
+inline std::unique_ptr<ibv::threaddomain::ThreadDomain> ibv::context::Context::allocThreadDomain(ibv::threaddomain::Attributes& attr) {
+    using TD = threaddomain::ThreadDomain;
+    const auto td = ibv_alloc_td(this, &attr);
+    internal::checkPtr("ibv_alloc_td", td);
+    return std::unique_ptr<TD>(reinterpret_cast<TD *>(td));
 }
 
 inline std::unique_ptr<ibv::xrcd::ExtendedConnectionDomain>
