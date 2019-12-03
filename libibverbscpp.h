@@ -7,6 +7,8 @@
 #include <memory>
 #include <sstream>
 
+#include <boost/optional.hpp>
+
 namespace ibv {
 namespace internal {
 [[nodiscard]] inline std::runtime_error exception(const char *function, int errnum);
@@ -191,6 +193,10 @@ class Context;
 namespace protectiondomain {
 class ProtectionDomain;
 } // namespace protectiondomain
+
+namespace parentdomain {
+class ParentDomain;
+} // namespace parentdomain
 
 namespace workcompletion {
 enum class Status : std::underlying_type_t<ibv_wc_status> {
@@ -1777,10 +1783,50 @@ class ProtectionDomain : public ibv_pd, public internal::PointerOnly {
     [[nodiscard]] std::unique_ptr<ah::AddressHandle>
     createAddressHandleFromWorkCompletion(workcompletion::WorkCompletion &wc, GlobalRoutingHeader *grh,
                                           uint8_t port_num);
+
 };
 
 static_assert(sizeof(ProtectionDomain) == sizeof(ibv_pd), "");
 } // namespace protectiondomain
+
+namespace threaddomain {
+    class ThreadDomain : public ibv_td, public internal::PointerOnly {
+    public:
+    static void *operator new(std::size_t) noexcept = delete;
+
+    static void operator delete(void *ptr) noexcept;
+    };
+
+    static_assert(sizeof(ThreadDomain) == sizeof(ibv_td), "");
+
+    struct Attributes : public ibv_td_init_attr {
+    };
+
+    static_assert(sizeof(Attributes) == sizeof(ibv_td_init_attr), "");
+} // namespace threaddomain
+
+namespace parentdomain {
+
+class ParentDomain : public protectiondomain::ProtectionDomain {
+};
+
+static_assert(sizeof(ParentDomain) == sizeof(ibv_pd), "");
+class Attributes : public ibv_parent_domain_init_attr {
+    public:
+    Attributes();
+    void setPD(protectiondomain::ProtectionDomain& pd);
+    void setTD(boost::optional<threaddomain::ThreadDomain&> td);
+
+    void setAlloc(void *(*alloc)(ibv_pd *pd, void *pd_context, size_t size, size_t alignment, uint64_t resource_type));
+    void setFree(void (*free)(ibv_pd *pd, void *pd_context, void *ptr, uint64_t resource_type));
+    void setContext(void *context);
+
+    void *getContext() const;
+};
+
+static_assert(sizeof(Attributes) == sizeof(ibv_parent_domain_init_attr), "");
+
+} // namespace parentdomain
 
 namespace context {
 class Context : public ibv_context, public internal::PointerOnly {
@@ -1817,6 +1863,12 @@ class Context : public ibv_context, public internal::PointerOnly {
 
     /// Allocate a ProtectionDomain for the device
     [[nodiscard]] std::unique_ptr<protectiondomain::ProtectionDomain> allocProtectionDomain();
+
+    /// Allocate a ThreadDomain for the device
+    [[nodiscard]] std::unique_ptr<threaddomain::ThreadDomain> allocThreadDomain(threaddomain::Attributes& attr);
+
+    /// Allocate a ParentDomain for the device
+    [[nodiscard]] std::unique_ptr<parentdomain::ParentDomain> allocParentDomain(parentdomain::Attributes& attr);
 
     /// open an XRC protection domain
     [[nodiscard]] std::unique_ptr<xrcd::ExtendedConnectionDomain>
@@ -1862,6 +1914,19 @@ class Context : public ibv_context, public internal::PointerOnly {
 /// status, then libibverbs data structures are not fork()-safe and the effect of an application calling fork()
 /// is undefined.
 inline void forkInit();
+
+// Helper class for custom allocators
+class CustomAllocator : public parentdomain::Attributes
+{
+public:
+    explicit CustomAllocator(protectiondomain::ProtectionDomain& pd);
+    virtual ~CustomAllocator() {}
+
+protected:
+    virtual void *alloc(parentdomain::ParentDomain& pd, size_t size, size_t alignment, uint64_t resource_type) = 0;
+    virtual void free(parentdomain::ParentDomain& pd, void *ptr, uint64_t resource_type) = 0;
+};
+
 } // namespace ibv
 
 /**********************************************************************************************************************/
@@ -3437,6 +3502,52 @@ ibv::protectiondomain::ProtectionDomain::createAddressHandleFromWorkCompletion(i
     return std::unique_ptr<AH>(reinterpret_cast<AH *>(ah));
 }
 
+inline void ibv::threaddomain::ThreadDomain::operator delete(void *ptr) noexcept {
+    const auto status = ibv_dealloc_td(reinterpret_cast<ibv_td *>(ptr));
+    internal::checkStatusNoThrow("ibv_dealloc_td", status);
+}
+
+inline ibv::parentdomain::Attributes::Attributes() :
+    ibv_parent_domain_init_attr{}
+{
+}
+
+inline void ibv::parentdomain::Attributes::setPD(protectiondomain::ProtectionDomain& pd)
+{
+    this->pd = &pd;
+}
+
+inline void ibv::parentdomain::Attributes::setTD(boost::optional<threaddomain::ThreadDomain&> td)
+{
+    this->td = td.get_ptr();
+}
+
+inline void ibv::parentdomain::Attributes::setAlloc(void *(*alloc)(ibv_pd* pd, void *pd_context, size_t size, size_t alignment, uint64_t resource_type))
+{
+    this->alloc = alloc;
+    if (this->alloc || this->free)
+	this->comp_mask |= IBV_PARENT_DOMAIN_INIT_ATTR_ALLOCATORS;
+}
+
+inline void ibv::parentdomain::Attributes::setFree(void (*free)(ibv_pd *pd, void *pd_context, void *ptr, uint64_t resource_type))
+{
+    this->free = free;
+    if (this->alloc || this->free)
+	this->comp_mask |= IBV_PARENT_DOMAIN_INIT_ATTR_ALLOCATORS;
+}
+
+inline void ibv::parentdomain::Attributes::setContext(void *context)
+{
+    this->pd_context = context;
+    if (this->pd_context)
+	this->comp_mask |= IBV_PARENT_DOMAIN_INIT_ATTR_PD_CONTEXT;
+}
+
+inline void *ibv::parentdomain::Attributes::getContext() const
+{
+    return pd_context;
+}
+
 inline void ibv::context::Context::operator delete(void *ptr) noexcept {
     const auto status = ibv_close_device(reinterpret_cast<ibv_context *>(ptr));
     internal::checkStatusNoThrow("ibv_close_device", status);
@@ -3488,6 +3599,20 @@ inline std::unique_ptr<ibv::protectiondomain::ProtectionDomain> ibv::context::Co
     return std::unique_ptr<PD>(reinterpret_cast<PD *>(pd));
 }
 
+inline std::unique_ptr<ibv::threaddomain::ThreadDomain> ibv::context::Context::allocThreadDomain(ibv::threaddomain::Attributes& attr) {
+    using TD = threaddomain::ThreadDomain;
+    const auto td = ibv_alloc_td(this, &attr);
+    internal::checkPtr("ibv_alloc_td", td);
+    return std::unique_ptr<TD>(reinterpret_cast<TD *>(td));
+}
+
+inline std::unique_ptr<ibv::parentdomain::ParentDomain> ibv::context::Context::allocParentDomain(ibv::parentdomain::Attributes& attr) {
+    using PD = parentdomain::ParentDomain;
+    const auto pd = ibv_alloc_parent_domain(this, &attr);
+    internal::checkPtr("ibv_alloc_parent_domain", pd);
+    return std::unique_ptr<PD>(reinterpret_cast<PD *>(pd));
+}
+
 inline std::unique_ptr<ibv::xrcd::ExtendedConnectionDomain>
 ibv::context::Context::openExtendedConnectionDomain(ibv::xrcd::InitAttributes &attr) {
     using XRCD = xrcd::ExtendedConnectionDomain;
@@ -3534,6 +3659,22 @@ ibv::context::Context::getAhAttributesFromWorkCompletion(uint8_t port_num, ibv::
     ah::Attributes attributes;
     initAhAttributesFromWorkCompletion(port_num, wc, grh, attributes);
     return attributes;
+}
+
+inline ibv::CustomAllocator::CustomAllocator(protectiondomain::ProtectionDomain& pd)
+{
+    setPD(pd);
+    setContext(this);
+
+    setAlloc([](ibv_pd *pd_ptr, void *pd_context, size_t size, size_t alignment, uint64_t resource_type) {
+	CustomAllocator *allocator = static_cast<CustomAllocator *>(pd_context);
+	return allocator->alloc(static_cast<parentdomain::ParentDomain&>(*pd_ptr), size, alignment, resource_type);
+    });
+
+    setFree([](ibv_pd *pd_ptr, void *pd_context, void *ptr, uint64_t resource_type) {
+	CustomAllocator *allocator = static_cast<CustomAllocator *>(pd_context);
+	return allocator->free(static_cast<parentdomain::ParentDomain&>(*pd_ptr), ptr, resource_type);
+    });
 }
 
 #endif
